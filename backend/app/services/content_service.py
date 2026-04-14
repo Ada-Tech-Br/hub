@@ -1,0 +1,233 @@
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy.orm import Session
+from sqlalchemy import select, func, or_
+
+from app.models.content import Content, ContentType, FileType
+from app.schemas.content import ContentCreate, ContentUpdate, ContentAccessResponse, SnippetResponse
+from app.schemas.common import PaginatedResponse
+from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
+from app.core.config import settings
+from app.services import s3_service
+
+
+def get_content_by_id(db: Session, content_id: uuid.UUID) -> Content:
+    content = db.scalar(
+        select(Content).where(Content.id == content_id, Content.is_deleted == False)
+    )
+    if not content:
+        raise NotFoundError("Content not found")
+    return content
+
+
+def list_contents(
+    db: Session,
+    page: int = 1,
+    page_size: int = 20,
+    search: str | None = None,
+    type: ContentType | None = None,
+    is_public: bool | None = None,
+) -> PaginatedResponse:
+    query = select(Content).where(Content.is_deleted == False)
+
+    if search:
+        query = query.where(Content.title.ilike(f"%{search}%"))
+    if type:
+        query = query.where(Content.type == type)
+    if is_public is not None:
+        query = query.where(Content.is_public == is_public)
+
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    items = db.scalars(
+        query.order_by(Content.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+
+    return PaginatedResponse(
+        items=list(items),
+        total=total or 0,
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, -(-( total or 0) // page_size)),
+    )
+
+
+def create_content(
+    db: Session, data: ContentCreate, created_by: uuid.UUID | None = None
+) -> Content:
+    content = Content(
+        title=data.title,
+        description=data.description,
+        type=data.type,
+        icon=data.icon,
+        is_public=data.is_public,
+        external_url=data.external_url,
+        file_type=data.file_type,
+        created_by=created_by,
+        updated_by=created_by,
+    )
+    db.add(content)
+    db.commit()
+    db.refresh(content)
+    return content
+
+
+def update_content(
+    db: Session, content_id: uuid.UUID, data: ContentUpdate, updated_by: uuid.UUID | None = None
+) -> Content:
+    content = get_content_by_id(db, content_id)
+
+    for field, value in data.model_dump(exclude_none=True).items():
+        setattr(content, field, value)
+
+    content.updated_by = updated_by
+    content.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(content)
+    return content
+
+
+def soft_delete_content(
+    db: Session, content_id: uuid.UUID, deleted_by: uuid.UUID | None = None
+) -> None:
+    content = get_content_by_id(db, content_id)
+    content.is_deleted = True
+    content.deleted_at = datetime.now(timezone.utc)
+    content.deleted_by = deleted_by
+    db.commit()
+
+
+def handle_html_upload(
+    db: Session,
+    content_id: uuid.UUID,
+    file_bytes: bytes,
+    filename: str,
+    updated_by: uuid.UUID | None = None,
+) -> Content:
+    content = get_content_by_id(db, content_id)
+    if content.type != ContentType.file:
+        raise ValidationError("Content must be of type 'file'")
+
+    s3_key = s3_service.upload_html_file(content_id, file_bytes, filename)
+    content.s3_path = s3_key
+    content.file_type = FileType.html
+    content.uploaded_file_path = filename
+    content.updated_by = updated_by
+    content.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(content)
+    return content
+
+
+def handle_zip_upload(
+    db: Session,
+    content_id: uuid.UUID,
+    zip_bytes: bytes,
+    updated_by: uuid.UUID | None = None,
+) -> Content:
+    content = get_content_by_id(db, content_id)
+    if content.type != ContentType.file:
+        raise ValidationError("Content must be of type 'file'")
+
+    base_path = s3_service.upload_zip_content(content_id, zip_bytes)
+    content.s3_path = f"{base_path}/index.html"
+    content.file_type = FileType.zip
+    content.uploaded_file_path = base_path
+    content.updated_by = updated_by
+    content.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(content)
+    return content
+
+
+def get_content_access(db: Session, content_id: uuid.UUID) -> ContentAccessResponse:
+    content = get_content_by_id(db, content_id)
+
+    if content.type == ContentType.project:
+        return ContentAccessResponse(
+            access_url=content.external_url or "",
+            type=content.type,
+        )
+
+    if not content.s3_path:
+        raise ValidationError("Content has no associated file")
+
+    if content.is_public:
+        access_url = s3_service.get_public_url(content.s3_path)
+    else:
+        access_url = s3_service.get_presigned_url(content.s3_path)
+
+    return ContentAccessResponse(
+        access_url=access_url,
+        type=content.type,
+        file_type=content.file_type,
+    )
+
+
+def generate_snippet(db: Session, content_id: uuid.UUID) -> SnippetResponse:
+    content = get_content_by_id(db, content_id)
+
+    if content.type != ContentType.project or content.is_public:
+        raise ValidationError("Snippets are only available for private projects")
+
+    snippet = f"""<!-- Ada Platform - Access Control Snippet -->
+<script>
+(function() {{
+  var ADA_API = "{settings.FRONTEND_URL}";
+  var CONTENT_ID = "{content_id}";
+
+  function getCookie(name) {{
+    var matches = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([\\.$?*|{{}}\\(\\)\\[\\]\\\\\\/\\+\\^])/g, '\\\\$1') + '=([^;]*)'));
+    return matches ? decodeURIComponent(matches[1]) : undefined;
+  }}
+
+  function getToken() {{
+    return localStorage.getItem('ada_access_token') || getCookie('ada_access_token');
+  }}
+
+  function redirectToLogin() {{
+    window.location.href = ADA_API + '/login?redirect=' + encodeURIComponent(window.location.href);
+  }}
+
+  async function validateAccess() {{
+    var token = getToken();
+    if (!token) {{
+      redirectToLogin();
+      return;
+    }}
+
+    try {{
+      var response = await fetch(ADA_API.replace(':5173', ':8000') + '/content/{content_id}/access', {{
+        method: 'GET',
+        headers: {{
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        }}
+      }});
+
+      if (response.status === 401 || response.status === 403) {{
+        redirectToLogin();
+        return;
+      }}
+
+      if (!response.ok) {{
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif"><p>Access error. Please try again.</p></div>';
+        return;
+      }}
+    }} catch (e) {{
+      redirectToLogin();
+    }}
+  }}
+
+  if (document.readyState === 'loading') {{
+    document.addEventListener('DOMContentLoaded', validateAccess);
+  }} else {{
+    validateAccess();
+  }}
+}})();
+</script>"""
+
+    return SnippetResponse(content_id=content_id, snippet=snippet)
