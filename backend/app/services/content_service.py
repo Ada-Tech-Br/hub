@@ -132,8 +132,8 @@ def handle_zip_upload(
     if content.type != ContentType.file:
         raise ValidationError("Content must be of type 'file'")
 
-    base_path = s3_service.upload_zip_content(content_id, zip_bytes)
-    content.s3_path = f"{base_path}/index.html"
+    base_path, index_s3_key = s3_service.upload_zip_content(content_id, zip_bytes)
+    content.s3_path = index_s3_key
     content.file_type = FileType.zip
     content.uploaded_file_path = base_path
     content.updated_by = updated_by
