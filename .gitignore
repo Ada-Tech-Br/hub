@@ -14,8 +14,6 @@ var/
 sdist/
 develop-eggs/
 .installed.cfg
-lib/
-lib64/
 .venv/
 venv/
 env/
@@ -31,8 +29,6 @@ backend/alembic/versions/__pycache__/
 .env.local
 .env.*.local
 !.env.example
-frontend/.env
-backend/.env
 
 # ─── Node / Frontend ─────────────────────────────────────────────────────────
 node_modules/
