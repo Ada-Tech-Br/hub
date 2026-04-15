@@ -27,6 +27,8 @@ services:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql://ada:ada@postgres:5432/ada_platform
+      # Ficheiros em volumes montados nem sempre disparam inotify; o polling garante --reload no Docker Desktop/WSL.
+      WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -34,7 +36,12 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app
 
   frontend:
     build:
@@ -45,10 +52,12 @@ services:
       - "5173:5173"
     environment:
       VITE_API_URL: http://localhost:8000
+      # O Vite lê isto em vite.config.ts para usar polling no watcher (mesma razão que no backend).
+      CHOKIDAR_USEPOLLING: "true"
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    command: npm run dev -- --host
+    command: npm run dev -- --host 0.0.0.0
 
 volumes:
   postgres_data:

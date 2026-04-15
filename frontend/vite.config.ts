@@ -11,6 +11,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    watch:
+      process.env.CHOKIDAR_USEPOLLING === "true"
+        ? { usePolling: true, interval: 300 }
+        : undefined,
     // Proxy apenas para /api (rotas com prefixo explícito).
     // As chamadas às rotas /auth, /users, /content usam VITE_API_URL absoluta
     // (http://localhost:8000) e passam diretamente via CORS, sem proxy.
