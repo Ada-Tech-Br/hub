@@ -2,10 +2,14 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, delete
 
-from app.models.content import Content, ContentType, FileType
-from app.schemas.content import ContentCreate, ContentUpdate, ContentAccessResponse, SnippetResponse
+from app.models.content import Content, ContentType, FileType, AccessMode, ContentAccess
+from app.models.user import User
+from app.schemas.content import (
+    ContentCreate, ContentUpdate, ContentAccessResponse, SnippetResponse,
+    AccessControlResponse, AccessControlUser,
+)
 from app.schemas.common import PaginatedResponse
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.core.config import settings
@@ -143,7 +147,22 @@ def handle_zip_upload(
     return content
 
 
-def get_content_access(db: Session, content_id: uuid.UUID) -> ContentAccessResponse:
+def _check_user_access(db: Session, content: Content, user_id: uuid.UUID) -> bool:
+    """Returns True if the user is allowed to access private content."""
+    if content.access_mode == AccessMode.all_users:
+        return True
+    grant = db.scalar(
+        select(ContentAccess).where(
+            ContentAccess.content_id == content.id,
+            ContentAccess.user_id == user_id,
+        )
+    )
+    return grant is not None
+
+
+def get_content_access(
+    db: Session, content_id: uuid.UUID, current_user_id: uuid.UUID
+) -> ContentAccessResponse:
     content = get_content_by_id(db, content_id)
 
     if content.type == ContentType.project:
@@ -155,6 +174,9 @@ def get_content_access(db: Session, content_id: uuid.UUID) -> ContentAccessRespo
     if not content.s3_path:
         raise ValidationError("Content has no associated file")
 
+    if not content.is_public and not _check_user_access(db, content, current_user_id):
+        raise ForbiddenError("You do not have access to this content")
+
     if content.is_public:
         access_url = s3_service.get_public_url(content.s3_path)
     else:
@@ -165,6 +187,64 @@ def get_content_access(db: Session, content_id: uuid.UUID) -> ContentAccessRespo
         type=content.type,
         file_type=content.file_type,
     )
+
+
+def get_access_control(db: Session, content_id: uuid.UUID) -> AccessControlResponse:
+    content = get_content_by_id(db, content_id)
+    users: list[AccessControlUser] = []
+    if content.access_mode == AccessMode.specific_users:
+        rows = db.scalars(
+            select(User).join(
+                ContentAccess, ContentAccess.user_id == User.id
+            ).where(
+                ContentAccess.content_id == content_id,
+                User.is_deleted == False,
+            ).order_by(User.name)
+        ).all()
+        users = [AccessControlUser.model_validate(u) for u in rows]
+    return AccessControlResponse(access_mode=content.access_mode, users=users)
+
+
+def set_access_mode(
+    db: Session, content_id: uuid.UUID, mode: AccessMode, updated_by: uuid.UUID | None = None
+) -> AccessControlResponse:
+    content = get_content_by_id(db, content_id)
+    content.access_mode = mode
+    content.updated_by = updated_by
+    content.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(content)
+    return get_access_control(db, content_id)
+
+
+def grant_users(
+    db: Session, content_id: uuid.UUID, user_ids: list[uuid.UUID], granted_by: uuid.UUID | None = None
+) -> AccessControlResponse:
+    get_content_by_id(db, content_id)
+    existing = set(
+        db.scalars(
+            select(ContentAccess.user_id).where(ContentAccess.content_id == content_id)
+        ).all()
+    )
+    new_grants = [
+        ContentAccess(content_id=content_id, user_id=uid, granted_by=granted_by)
+        for uid in user_ids
+        if uid not in existing
+    ]
+    if new_grants:
+        db.add_all(new_grants)
+        db.commit()
+    return get_access_control(db, content_id)
+
+
+def revoke_user(db: Session, content_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    db.execute(
+        delete(ContentAccess).where(
+            ContentAccess.content_id == content_id,
+            ContentAccess.user_id == user_id,
+        )
+    )
+    db.commit()
 
 
 def generate_snippet(db: Session, content_id: uuid.UUID) -> SnippetResponse:

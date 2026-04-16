@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   Plus, Search, MoreHorizontal, Trash2, Edit, Loader2,
-  FileText, Upload, Code, Globe, Lock, ExternalLink
+  FileText, Upload, Code, Globe, Lock, ExternalLink, Users, X, UserCheck, UserX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
@@ -22,8 +22,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Skeleton } from "@/components/ui/skeleton";
 import { Pagination } from "@/components/shared/Pagination";
 import { contentService, type CreateContentData } from "@/services/content.service";
+import { usersService } from "@/services/users.service";
 import { useDebounce } from "@/hooks/useDebounce";
-import type { Content } from "@/types";
+import type { Content, AccessMode } from "@/types";
 
 const PAGE_SIZE = 15;
 
@@ -71,6 +72,192 @@ function SnippetDialog({ content, onClose }: { content: Content | null; onClose:
             </Button>
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AccessControlDialog({
+  content,
+  onClose,
+}: {
+  content: Content | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [userSearch, setUserSearch] = useState("");
+  const debouncedSearch = useDebounce(userSearch, 350);
+
+  const { data: ac, isLoading } = useQuery({
+    queryKey: ["access-control", content?.id],
+    queryFn: () => contentService.getAccessControl(content!.id),
+    enabled: !!content,
+  });
+
+  const { data: userResults } = useQuery({
+    queryKey: ["user-search", debouncedSearch],
+    queryFn: () => usersService.list({ search: debouncedSearch, page_size: 8, is_active: true }),
+    enabled: !!debouncedSearch,
+  });
+
+  const modeMutation = useMutation({
+    mutationFn: (mode: AccessMode) => contentService.setAccessMode(content!.id, mode),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["access-control", content?.id] }),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const grantMutation = useMutation({
+    mutationFn: (userId: string) => contentService.grantUsers(content!.id, [userId]),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["access-control", content?.id] });
+      setUserSearch("");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (userId: string) => contentService.revokeUser(content!.id, userId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["access-control", content?.id] }),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const grantedIds = new Set(ac?.users.map((u) => u.id) ?? []);
+  const searchResults = userResults?.items.filter((u) => !grantedIds.has(u.id)) ?? [];
+
+  return (
+    <Dialog open={!!content} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Controlar Acesso</DialogTitle>
+          <DialogDescription>
+            Defina quem pode acessar <strong>{content?.title}</strong>.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading && <Skeleton className="h-32" />}
+
+        {ac && (
+          <div className="space-y-5">
+            {/* Mode selector */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => modeMutation.mutate("all_users")}
+                disabled={modeMutation.isPending}
+                className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-sm transition-colors ${
+                  ac.access_mode === "all_users"
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-muted hover:border-primary/40"
+                }`}
+              >
+                <UserCheck className="h-6 w-6" />
+                <span className="font-medium">Todos os usuários</span>
+                <span className="text-xs text-muted-foreground text-center">
+                  Qualquer usuário autenticado
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => modeMutation.mutate("specific_users")}
+                disabled={modeMutation.isPending}
+                className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-sm transition-colors ${
+                  ac.access_mode === "specific_users"
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-muted hover:border-primary/40"
+                }`}
+              >
+                <UserX className="h-6 w-6" />
+                <span className="font-medium">Usuários específicos</span>
+                <span className="text-xs text-muted-foreground text-center">
+                  Somente quem você selecionar
+                </span>
+              </button>
+            </div>
+
+            {/* User management (specific mode only) */}
+            {ac.access_mode === "specific_users" && (
+              <div className="space-y-3">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar usuário por nome ou e-mail..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+
+                {/* Search results */}
+                {debouncedSearch && searchResults.length > 0 && (
+                  <div className="rounded-lg border divide-y max-h-40 overflow-y-auto">
+                    {searchResults.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+                        onClick={() => grantMutation.mutate(u.id)}
+                        disabled={grantMutation.isPending}
+                      >
+                        <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{u.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                        </div>
+                        <Plus className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {debouncedSearch && searchResults.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-2">Nenhum usuário encontrado</p>
+                )}
+
+                {/* Granted users */}
+                {ac.users.length > 0 ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      {ac.users.length} usuário{ac.users.length !== 1 ? "s" : ""} com acesso
+                    </p>
+                    <div className="rounded-lg border divide-y max-h-48 overflow-y-auto">
+                      {ac.users.map((u) => (
+                        <div key={u.id} className="flex items-center gap-3 px-3 py-2">
+                          <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
+                            {u.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{u.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            onClick={() => revokeMutation.mutate(u.id)}
+                            disabled={revokeMutation.isPending}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-3 rounded-lg border border-dashed">
+                    Nenhum usuário com acesso ainda
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -369,6 +556,7 @@ export function ContentAdminPage() {
   const [editContent, setEditContent] = useState<Content | null>(null);
   const [uploadContent, setUploadContent] = useState<Content | null>(null);
   const [snippetContent, setSnippetContent] = useState<Content | null>(null);
+  const [accessContent, setAccessContent] = useState<Content | null>(null);
   const debouncedSearch = useDebounce(search, 400);
   const queryClient = useQueryClient();
 
@@ -508,6 +696,12 @@ export function ContentAdminPage() {
                             Substituir arquivo
                           </DropdownMenuItem>
                         )}
+                        {!content.is_public && (
+                          <DropdownMenuItem onClick={() => setAccessContent(content as unknown as Content)}>
+                            <Users className="mr-2 h-4 w-4" />
+                            Controlar acesso
+                          </DropdownMenuItem>
+                        )}
                         {content.type === "project" && !content.is_public && (
                           <DropdownMenuItem onClick={() => setSnippetContent(content as unknown as Content)}>
                             <Code className="mr-2 h-4 w-4" />
@@ -555,6 +749,7 @@ export function ContentAdminPage() {
       />
       <ReplaceFileDialog content={uploadContent} onClose={() => setUploadContent(null)} />
       <SnippetDialog content={snippetContent} onClose={() => setSnippetContent(null)} />
+      <AccessControlDialog content={accessContent} onClose={() => setAccessContent(null)} />
     </div>
   );
 }

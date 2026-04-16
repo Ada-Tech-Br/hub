@@ -75,3 +75,17 @@ export interface SnippetResponse {
 export interface ApiError {
   detail: string;
 }
+
+export type AccessMode = "all_users" | "specific_users";
+
+export interface AccessControlUser {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+}
+
+export interface AccessControlResponse {
+  access_mode: AccessMode;
+  users: AccessControlUser[];
+}

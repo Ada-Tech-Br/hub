@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, HttpUrl, model_validator
 from typing import Any
-from app.models.content import ContentType, FileType
+from app.models.content import ContentType, FileType, AccessMode
 
 
 class ContentBase(BaseModel):
@@ -69,3 +69,25 @@ class ContentAccessResponse(BaseModel):
 class SnippetResponse(BaseModel):
     content_id: uuid.UUID
     snippet: str
+
+
+class AccessControlUser(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    name: str
+    email: str
+    avatar_url: str | None = None
+
+
+class AccessControlResponse(BaseModel):
+    access_mode: AccessMode
+    users: list[AccessControlUser]
+
+
+class SetAccessModeRequest(BaseModel):
+    access_mode: AccessMode
+
+
+class GrantUsersRequest(BaseModel):
+    user_ids: list[uuid.UUID]

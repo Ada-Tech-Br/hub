@@ -1,5 +1,8 @@
 import { api } from "@/lib/api";
-import type { Content, ContentListItem, PaginatedResponse, ContentAccessResponse, SnippetResponse } from "@/types";
+import type {
+  Content, ContentListItem, PaginatedResponse, ContentAccessResponse,
+  SnippetResponse, AccessControlResponse, AccessMode,
+} from "@/types";
 
 export interface ContentFilters {
   page?: number;
@@ -73,5 +76,24 @@ export const contentService = {
   async getSnippet(id: string): Promise<SnippetResponse> {
     const { data } = await api.get(`/content/${id}/snippet`);
     return data;
+  },
+
+  async getAccessControl(id: string): Promise<AccessControlResponse> {
+    const { data } = await api.get(`/content/${id}/access-control`);
+    return data;
+  },
+
+  async setAccessMode(id: string, mode: AccessMode): Promise<AccessControlResponse> {
+    const { data } = await api.patch(`/content/${id}/access-control`, { access_mode: mode });
+    return data;
+  },
+
+  async grantUsers(id: string, userIds: string[]): Promise<AccessControlResponse> {
+    const { data } = await api.post(`/content/${id}/access-control/users`, { user_ids: userIds });
+    return data;
+  },
+
+  async revokeUser(id: string, userId: string): Promise<void> {
+    await api.delete(`/content/${id}/access-control/users/${userId}`);
   },
 };

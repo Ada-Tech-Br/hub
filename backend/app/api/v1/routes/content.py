@@ -6,6 +6,7 @@ from app.models.content import ContentType
 from app.schemas.content import (
     ContentCreate, ContentUpdate, ContentResponse,
     ContentListResponse, ContentAccessResponse, SnippetResponse,
+    AccessControlResponse, SetAccessModeRequest, GrantUsersRequest,
 )
 from app.schemas.common import PaginatedResponse
 from app.services import content_service
@@ -83,9 +84,33 @@ async def upload_file(
 
 @router.get("/{content_id}/access", response_model=ContentAccessResponse)
 def get_content_access(content_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
-    return content_service.get_content_access(db, content_id)
+    return content_service.get_content_access(db, content_id, current_user_id=current_user.id)
 
 
 @router.get("/{content_id}/snippet", response_model=SnippetResponse)
 def get_snippet(content_id: uuid.UUID, db: DBSession, admin: AdminUser):
     return content_service.generate_snippet(db, content_id)
+
+
+@router.get("/{content_id}/access-control", response_model=AccessControlResponse)
+def get_access_control(content_id: uuid.UUID, db: DBSession, admin: AdminUser):
+    return content_service.get_access_control(db, content_id)
+
+
+@router.patch("/{content_id}/access-control", response_model=AccessControlResponse)
+def set_access_mode(
+    content_id: uuid.UUID, data: SetAccessModeRequest, db: DBSession, admin: AdminUser
+):
+    return content_service.set_access_mode(db, content_id, data.access_mode, updated_by=admin.id)
+
+
+@router.post("/{content_id}/access-control/users", response_model=AccessControlResponse)
+def grant_users(
+    content_id: uuid.UUID, data: GrantUsersRequest, db: DBSession, admin: AdminUser
+):
+    return content_service.grant_users(db, content_id, data.user_ids, granted_by=admin.id)
+
+
+@router.delete("/{content_id}/access-control/users/{user_id}", status_code=204)
+def revoke_user(content_id: uuid.UUID, user_id: uuid.UUID, db: DBSession, admin: AdminUser):
+    content_service.revoke_user(db, content_id, user_id)
