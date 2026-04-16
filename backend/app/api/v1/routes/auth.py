@@ -1,12 +1,11 @@
+from app.core.config import settings
+from app.core.deps import CurrentUser, DBSession
+from app.schemas.auth import OTPRequest, OTPVerify, RefreshTokenRequest, TokenResponse
+from app.schemas.user import UserResponse
+from app.services import auth_service
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-
-from app.core.config import settings
-from app.core.deps import CurrentUser, DBSession
-from app.schemas.auth import TokenResponse, OTPRequest, OTPVerify, RefreshTokenRequest
-from app.schemas.user import UserResponse
-from app.services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -15,14 +14,17 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def google_login():
     """Redirect to Google OAuth consent screen (fallback — prefer frontend-initiated flow)."""
     from urllib.parse import urlencode
-    params = urlencode({
-        "client_id": settings.GOOGLE_CLIENT_ID,
-        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
-        "response_type": "code",
-        "scope": "openid email profile",
-        "access_type": "offline",
-        "prompt": "select_account",
-    })
+
+    params = urlencode(
+        {
+            "client_id": settings.GOOGLE_CLIENT_ID,
+            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "access_type": "offline",
+            "prompt": "select_account",
+        }
+    )
     return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 

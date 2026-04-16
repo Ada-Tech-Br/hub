@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, HttpUrl, model_validator
-from typing import Any
-from app.models.content import ContentType, FileType, AccessMode
+
+from app.models.content import AccessMode, ContentType, FileType
+from pydantic import BaseModel, model_validator
 
 
 class ContentBase(BaseModel):

@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator
-from app.models.user import UserType, UserRole, AuthProvider
+
+from app.models.user import AuthProvider, UserRole, UserType
+from pydantic import BaseModel, EmailStr
 
 
 class UserBase(BaseModel):

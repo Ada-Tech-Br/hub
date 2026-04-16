@@ -1,5 +1,5 @@
-from app.models.user import User, UserType, UserRole, AuthProvider
 from app.models.content import Content, ContentType, FileType
+from app.models.user import AuthProvider, User, UserRole, UserType
 
 __all__ = [
     "User",

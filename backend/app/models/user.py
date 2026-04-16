@@ -1,9 +1,11 @@
-import uuid
-from sqlalchemy import Boolean, String, Enum as SAEnum
-from sqlalchemy.orm import Mapped, mapped_column
+import enum
+
 from app.db.base import Base
 from app.models.base import AuditMixin
-import enum
+from sqlalchemy import Boolean
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column
 
 
 class UserType(str, enum.Enum):
@@ -25,7 +27,9 @@ class User(AuditMixin, Base):
     __tablename__ = "users"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, index=True
+    )
     type: Mapped[UserType] = mapped_column(
         SAEnum(UserType, name="user_type"), nullable=False, default=UserType.external
     )
@@ -33,7 +37,9 @@ class User(AuditMixin, Base):
         SAEnum(UserRole, name="user_role"), nullable=False, default=UserRole.user
     )
     auth_provider: Mapped[AuthProvider] = mapped_column(
-        SAEnum(AuthProvider, name="auth_provider"), nullable=False, default=AuthProvider.otp
+        SAEnum(AuthProvider, name="auth_provider"),
+        nullable=False,
+        default=AuthProvider.otp,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

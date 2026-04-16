@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy.orm import Session
-from sqlalchemy import select, func, or_
 
-from app.models.user import User, UserType, UserRole, AuthProvider
-from app.schemas.user import UserCreate, UserUpdate
+from app.core.exceptions import ConflictError, NotFoundError
+from app.models.user import User, UserRole, UserType
 from app.schemas.common import PaginatedResponse
-from app.core.exceptions import NotFoundError, ConflictError
+from app.schemas.user import UserCreate, UserUpdate
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
 
 def get_user_by_id(db: Session, user_id: uuid.UUID) -> User:
@@ -57,11 +57,13 @@ def list_users(
         total=total or 0,
         page=page,
         page_size=page_size,
-        total_pages=max(1, -(-( total or 0) // page_size)),
+        total_pages=max(1, -(-(total or 0) // page_size)),
     )
 
 
-def create_user(db: Session, data: UserCreate, created_by: uuid.UUID | None = None) -> User:
+def create_user(
+    db: Session, data: UserCreate, created_by: uuid.UUID | None = None
+) -> User:
     existing = get_user_by_email(db, data.email)
     if existing:
         raise ConflictError("Email already registered")
@@ -82,7 +84,10 @@ def create_user(db: Session, data: UserCreate, created_by: uuid.UUID | None = No
 
 
 def update_user(
-    db: Session, user_id: uuid.UUID, data: UserUpdate, updated_by: uuid.UUID | None = None
+    db: Session,
+    user_id: uuid.UUID,
+    data: UserUpdate,
+    updated_by: uuid.UUID | None = None,
 ) -> User:
     user = get_user_by_id(db, user_id)
 
@@ -114,7 +119,10 @@ def soft_delete_user(
 
 
 def toggle_user_active(
-    db: Session, user_id: uuid.UUID, is_active: bool, updated_by: uuid.UUID | None = None
+    db: Session,
+    user_id: uuid.UUID,
+    is_active: bool,
+    updated_by: uuid.UUID | None = None,
 ) -> User:
     user = get_user_by_id(db, user_id)
     user.is_active = is_active

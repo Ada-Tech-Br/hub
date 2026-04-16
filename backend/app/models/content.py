@@ -1,11 +1,14 @@
-import uuid
 import enum
+import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, Boolean, Enum as SAEnum, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.db.base import Base
 from app.models.base import AuditMixin
+from sqlalchemy import Boolean, DateTime
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
 class ContentType(str, enum.Enum):
@@ -35,7 +38,9 @@ class Content(AuditMixin, Base):
     icon: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     access_mode: Mapped[AccessMode] = mapped_column(
-        SAEnum(AccessMode, name="access_mode"), nullable=False, default=AccessMode.all_users
+        SAEnum(AccessMode, name="access_mode"),
+        nullable=False,
+        default=AccessMode.all_users,
     )
 
     # For project type
@@ -57,14 +62,20 @@ class ContentAccess(Base):
     __tablename__ = "content_access"
 
     content_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), primary_key=True
+        UUID(as_uuid=True),
+        ForeignKey("contents.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     granted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
-    granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
 
     content: Mapped["Content"] = relationship("Content", back_populates="access_grants")

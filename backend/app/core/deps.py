@@ -1,15 +1,14 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import verify_token
-from app.core.exceptions import UnauthorizedError, ForbiddenError
 from app.db.base import get_db
 from app.models.user import User, UserRole
 from app.services.user_service import get_user_by_id
+from fastapi import Depends, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
 bearer_scheme = HTTPBearer()
 

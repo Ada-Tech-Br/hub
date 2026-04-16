@@ -1,18 +1,20 @@
-import uuid
+import logging
 import random
 import string
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy.orm import Session
-
 from app.core.config import settings
+from app.core.exceptions import BadRequestError, UnauthorizedError
 from app.core.security import create_access_token, create_refresh_token, verify_token
-from app.core.exceptions import UnauthorizedError, BadRequestError, NotFoundError
-from app.models.user import User, UserType, UserRole, AuthProvider
-from app.schemas.auth import TokenResponse, OTPRequest, OTPVerify
+from app.models.user import AuthProvider, User, UserRole, UserType
+from app.schemas.auth import OTPRequest, OTPVerify, TokenResponse
 from app.schemas.user import UserResponse
 from app.services.user_service import get_user_by_email
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger("app.services.auth_service")
 
 
 def _build_token_response(user: User) -> TokenResponse:
@@ -39,7 +41,9 @@ def request_otp(db: Session, data: OTPRequest) -> dict:
         raise BadRequestError("This account uses a different authentication method")
 
     code = generate_otp_code()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.OTP_EXPIRE_MINUTES
+    )
 
     user.otp_secret = code
     user.otp_expires_at = expires_at.isoformat()
@@ -49,7 +53,7 @@ def request_otp(db: Session, data: OTPRequest) -> dict:
     try:
         _send_otp_email(user.email, user.name, code)
     except Exception:
-        pass  # Log but don't fail the request
+        logger.error("Failed to send OTP email", exc_info=True)
 
     return {"message": "If your email is registered, you will receive a code."}
 
@@ -59,12 +63,14 @@ def _send_otp_email(email: str, name: str, code: str) -> None:
         return  # Skip in dev without API key
 
     import resend
+
     resend.api_key = settings.RESEND_API_KEY
-    resend.Emails.send({
-        "from": settings.EMAIL_FROM,
-        "to": email,
-        "subject": "Seu código de acesso - Ada",
-        "html": f"""
+    resend.Emails.send(
+        {
+            "from": settings.EMAIL_FROM,
+            "to": email,
+            "subject": "Seu código de acesso - Ada",
+            "html": f"""
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
           <h2>Olá, {name}!</h2>
           <p>Seu código de acesso é:</p>
@@ -77,7 +83,8 @@ def _send_otp_email(email: str, name: str, code: str) -> None:
           <p>Se você não solicitou este código, ignore este e-mail.</p>
         </div>
         """,
-    })
+        }
+    )
 
 
 def verify_otp(db: Session, data: OTPVerify) -> TokenResponse:
@@ -171,6 +178,7 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenResponse:
         raise UnauthorizedError("Invalid refresh token")
 
     from app.services.user_service import get_user_by_id
+
     user = get_user_by_id(db, uuid.UUID(payload["sub"]))
 
     if not user.is_active:

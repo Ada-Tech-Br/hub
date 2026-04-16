@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr
 from app.schemas.user import UserResponse
+from pydantic import BaseModel, EmailStr
 
 
 class TokenResponse(BaseModel):

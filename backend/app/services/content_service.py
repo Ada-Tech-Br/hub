@@ -1,19 +1,25 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
-from sqlalchemy import select, func, delete
-
-from app.models.content import Content, ContentType, FileType, AccessMode, ContentAccess
-from app.models.user import User
-from app.schemas.content import (
-    ContentCreate, ContentUpdate, ContentAccessResponse, SnippetResponse,
-    AccessControlResponse, AccessControlUser,
-)
-from app.schemas.common import PaginatedResponse
-from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
 from app.core.config import settings
+from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
+from app.models.content import AccessMode, Content, ContentAccess, ContentType, FileType
+from app.models.user import User
+from app.schemas.common import PaginatedResponse
+from app.schemas.content import (
+    AccessControlResponse,
+    AccessControlUser,
+    ContentAccessResponse,
+    ContentCreate,
+    ContentUpdate,
+    SnippetResponse,
+)
 from app.services import s3_service
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger("app.services.content_service")
 
 
 def get_content_by_id(db: Session, content_id: uuid.UUID) -> Content:
@@ -54,7 +60,7 @@ def list_contents(
         total=total or 0,
         page=page,
         page_size=page_size,
-        total_pages=max(1, -(-( total or 0) // page_size)),
+        total_pages=max(1, -(-(total or 0) // page_size)),
     )
 
 
@@ -79,7 +85,10 @@ def create_content(
 
 
 def update_content(
-    db: Session, content_id: uuid.UUID, data: ContentUpdate, updated_by: uuid.UUID | None = None
+    db: Session,
+    content_id: uuid.UUID,
+    data: ContentUpdate,
+    updated_by: uuid.UUID | None = None,
 ) -> Content:
     content = get_content_by_id(db, content_id)
 
@@ -115,7 +124,9 @@ def handle_html_upload(
     if content.type != ContentType.file:
         raise ValidationError("Content must be of type 'file'")
 
-    s3_key = s3_service.upload_html_file(content_id, file_bytes, filename, is_public=content.is_public)
+    s3_key = s3_service.upload_html_file(
+        content_id, file_bytes, filename, is_public=content.is_public
+    )
     content.s3_path = s3_key
     content.file_type = FileType.html
     content.uploaded_file_path = filename
@@ -136,7 +147,9 @@ def handle_zip_upload(
     if content.type != ContentType.file:
         raise ValidationError("Content must be of type 'file'")
 
-    base_path, index_s3_key = s3_service.upload_zip_content(content_id, zip_bytes, is_public=content.is_public)
+    base_path, index_s3_key = s3_service.upload_zip_content(
+        content_id, zip_bytes, is_public=content.is_public
+    )
     content.s3_path = index_s3_key
     content.file_type = FileType.zip
     content.uploaded_file_path = base_path
@@ -175,6 +188,12 @@ def get_content_access(
         raise ValidationError("Content has no associated file")
 
     if not content.is_public and not _check_user_access(db, content, current_user_id):
+        logger.info(
+            "content_access_denied content_id=%s user_id=%s access_mode=%s",
+            content_id,
+            current_user_id,
+            content.access_mode.value,
+        )
         raise ForbiddenError("You do not have access to this content")
 
     if content.is_public:
@@ -194,19 +213,23 @@ def get_access_control(db: Session, content_id: uuid.UUID) -> AccessControlRespo
     users: list[AccessControlUser] = []
     if content.access_mode == AccessMode.specific_users:
         rows = db.scalars(
-            select(User).join(
-                ContentAccess, ContentAccess.user_id == User.id
-            ).where(
+            select(User)
+            .join(ContentAccess, ContentAccess.user_id == User.id)
+            .where(
                 ContentAccess.content_id == content_id,
                 User.is_deleted == False,
-            ).order_by(User.name)
+            )
+            .order_by(User.name)
         ).all()
         users = [AccessControlUser.model_validate(u) for u in rows]
     return AccessControlResponse(access_mode=content.access_mode, users=users)
 
 
 def set_access_mode(
-    db: Session, content_id: uuid.UUID, mode: AccessMode, updated_by: uuid.UUID | None = None
+    db: Session,
+    content_id: uuid.UUID,
+    mode: AccessMode,
+    updated_by: uuid.UUID | None = None,
 ) -> AccessControlResponse:
     content = get_content_by_id(db, content_id)
     content.access_mode = mode
@@ -218,7 +241,10 @@ def set_access_mode(
 
 
 def grant_users(
-    db: Session, content_id: uuid.UUID, user_ids: list[uuid.UUID], granted_by: uuid.UUID | None = None
+    db: Session,
+    content_id: uuid.UUID,
+    user_ids: list[uuid.UUID],
+    granted_by: uuid.UUID | None = None,
 ) -> AccessControlResponse:
     get_content_by_id(db, content_id)
     existing = set(

@@ -1,11 +1,11 @@
 import uuid
-from fastapi import APIRouter, Query
 
 from app.core.deps import AdminUser, DBSession
 from app.models.user import UserRole, UserType
-from app.schemas.user import UserCreate, UserUpdate, UserResponse, UserListResponse
 from app.schemas.common import PaginatedResponse
+from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
 from app.services import user_service
+from fastapi import APIRouter, Query
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -22,7 +22,13 @@ def list_users(
     is_active: bool | None = Query(default=None),
 ):
     result = user_service.list_users(
-        db, page=page, page_size=page_size, search=search, role=role, type=type, is_active=is_active
+        db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        role=role,
+        type=type,
+        is_active=is_active,
     )
     return PaginatedResponse[UserListResponse](
         items=[UserListResponse.model_validate(u) for u in result.items],
@@ -58,11 +64,15 @@ def delete_user(user_id: uuid.UUID, db: DBSession, admin: AdminUser):
 
 @router.patch("/{user_id}/activate", response_model=UserResponse)
 def activate_user(user_id: uuid.UUID, db: DBSession, admin: AdminUser):
-    user = user_service.toggle_user_active(db, user_id, is_active=True, updated_by=admin.id)
+    user = user_service.toggle_user_active(
+        db, user_id, is_active=True, updated_by=admin.id
+    )
     return UserResponse.model_validate(user)
 
 
 @router.patch("/{user_id}/deactivate", response_model=UserResponse)
 def deactivate_user(user_id: uuid.UUID, db: DBSession, admin: AdminUser):
-    user = user_service.toggle_user_active(db, user_id, is_active=False, updated_by=admin.id)
+    user = user_service.toggle_user_active(
+        db, user_id, is_active=False, updated_by=admin.id
+    )
     return UserResponse.model_validate(user)
