@@ -11,6 +11,7 @@ from app.core.security import create_access_token, create_refresh_token, verify_
 from app.models.user import AuthProvider, User, UserRole, UserType
 from app.schemas.auth import OTPRequest, OTPVerify, TokenResponse
 from app.schemas.user import UserResponse
+from app.services.email_service import send_html_email
 from app.services.user_service import get_user_by_email
 from sqlalchemy.orm import Session
 
@@ -49,7 +50,6 @@ def request_otp(db: Session, data: OTPRequest) -> dict:
     user.otp_expires_at = expires_at.isoformat()
     db.commit()
 
-    # Send email via Resend
     try:
         _send_otp_email(user.email, user.name, code)
     except Exception:
@@ -59,31 +59,30 @@ def request_otp(db: Session, data: OTPRequest) -> dict:
 
 
 def _send_otp_email(email: str, name: str, code: str) -> None:
-    if not settings.RESEND_API_KEY:
-        return  # Skip in dev without API key
-
-    import resend
-
-    resend.api_key = settings.RESEND_API_KEY
-    resend.Emails.send(
-        {
-            "from": settings.EMAIL_FROM,
-            "to": email,
-            "subject": "Seu código de acesso - Ada",
-            "html": f"""
+    subject = "Seu código de acesso - Ada"
+    html = f"""
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
           <h2>Olá, {name}!</h2>
           <p>Seu código de acesso é:</p>
-          <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; 
-                      text-align: center; padding: 24px; background: #f4f4f5; 
+          <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px;
+                      text-align: center; padding: 24px; background: #f4f4f5;
                       border-radius: 8px; margin: 24px 0;">
             {code}
           </div>
           <p>Este código expira em {settings.OTP_EXPIRE_MINUTES} minutos.</p>
           <p>Se você não solicitou este código, ignore este e-mail.</p>
         </div>
-        """,
-        }
+        """
+    text = (
+        f"Olá, {name}! Seu código de acesso é: {code}. "
+        f"Expira em {settings.OTP_EXPIRE_MINUTES} minutos. "
+        "Se você não solicitou este código, ignore este e-mail."
+    )
+    send_html_email(
+        to_addresses=[email],
+        subject=subject,
+        html_body=html,
+        text_body=text,
     )
 
 
