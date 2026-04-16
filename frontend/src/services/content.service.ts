@@ -15,7 +15,6 @@ export interface CreateContentData {
   icon?: string;
   is_public: boolean;
   external_url?: string;
-  file_type?: string;
 }
 
 export interface UpdateContentData {

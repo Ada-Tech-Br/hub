@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -34,7 +34,6 @@ const contentSchema = z.object({
   icon: z.string().optional(),
   is_public: z.boolean(),
   external_url: z.string().url("URL inválida").optional().or(z.literal("")),
-  file_type: z.enum(["html", "zip"]).optional(),
 });
 
 type ContentForm = z.infer<typeof contentSchema>;
@@ -77,7 +76,7 @@ function SnippetDialog({ content, onClose }: { content: Content | null; onClose:
   );
 }
 
-function UploadDialog({
+function ReplaceFileDialog({
   content,
   onClose,
 }: {
@@ -86,44 +85,57 @@ function UploadDialog({
 }) {
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const mutation = useMutation({
     mutationFn: () => contentService.uploadFile(content!.id, file!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-contents"] });
-      toast.success("Arquivo enviado com sucesso!");
+      toast.success("Arquivo substituído com sucesso!");
       onClose();
       setFile(null);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped) setFile(dropped);
+  }
+
   return (
     <Dialog open={!!content} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Upload de Arquivo</DialogTitle>
+          <DialogTitle>Substituir Arquivo</DialogTitle>
           <DialogDescription>
-            Envie um arquivo HTML ou ZIP com index.html.
+            O arquivo atual será substituído. Envie um HTML ou ZIP com index.html.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div
-            className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors"
-            onClick={() => document.getElementById("file-input")?.click()}
+            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+              dragOver ? "border-primary bg-primary/5" : "hover:border-primary"
+            }`}
+            onClick={() => document.getElementById("replace-file-input")?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
           >
             <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
             {file ? (
               <p className="text-sm font-medium">{file.name}</p>
             ) : (
               <>
-                <p className="text-sm font-medium">Clique para selecionar arquivo</p>
+                <p className="text-sm font-medium">Clique ou arraste o arquivo</p>
                 <p className="text-xs text-muted-foreground mt-1">HTML ou ZIP (máx. 50MB)</p>
               </>
             )}
           </div>
           <input
-            id="file-input"
+            id="replace-file-input"
             type="file"
             accept=".html,.htm,.zip"
             className="hidden"
@@ -134,7 +146,7 @@ function UploadDialog({
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={() => mutation.mutate()} disabled={!file || mutation.isPending}>
             {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Enviar arquivo
+            Substituir
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -153,6 +165,8 @@ function ContentFormDialog({
 }) {
   const queryClient = useQueryClient();
   const isEditing = !!editContent;
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const form = useForm<ContentForm>({
     resolver: zodResolver(contentSchema),
@@ -164,35 +178,50 @@ function ContentFormDialog({
           icon: editContent.icon ?? "",
           is_public: editContent.is_public,
           external_url: editContent.external_url ?? "",
-          file_type: editContent.file_type as "html" | "zip" | undefined,
         }
       : { type: "project", is_public: true },
   });
 
   const contentType = form.watch("type");
+  const needsFile = !isEditing && contentType === "file";
+
+  function handleClose() {
+    onClose();
+    form.reset();
+    setFile(null);
+  }
 
   const mutation = useMutation({
-    mutationFn: (data: ContentForm) => {
+    mutationFn: async (data: ContentForm) => {
       const payload: CreateContentData = {
         ...data,
         external_url: data.external_url || undefined,
-        file_type: data.file_type || undefined,
       };
       if (isEditing) return contentService.update(editContent.id, payload);
-      return contentService.create(payload);
+      const created = await contentService.create(payload);
+      if (file) await contentService.uploadFile(created.id, file);
+      return created;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-contents"] });
       queryClient.invalidateQueries({ queryKey: ["admin-contents-summary"] });
       toast.success(isEditing ? "Conteúdo atualizado!" : "Conteúdo criado!");
-      onClose();
-      form.reset();
+      handleClose();
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped) setFile(dropped);
+  }
+
+  const submitLabel = isEditing ? "Salvar" : contentType === "file" ? "Criar e enviar" : "Criar";
+
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEditing ? "Editar Conteúdo" : "Novo Conteúdo"}</DialogTitle>
@@ -200,13 +229,26 @@ function ContentFormDialog({
             {isEditing ? "Edite os dados do conteúdo." : "Adicione um novo projeto ou arquivo."}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
+        <form
+          onSubmit={form.handleSubmit((d) => {
+            if (needsFile && !file) {
+              toast.error("Selecione um arquivo para enviar");
+              return;
+            }
+            mutation.mutate(d);
+          })}
+          className="space-y-4"
+        >
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2 col-span-2">
               <Label>Tipo de conteúdo</Label>
               <Select
                 value={form.watch("type")}
-                onValueChange={(v) => form.setValue("type", v as "project" | "file")}
+                onValueChange={(v) => {
+                  form.setValue("type", v as "project" | "file");
+                  setFile(null);
+                }}
+                disabled={isEditing}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -269,33 +311,49 @@ function ContentFormDialog({
               </div>
             )}
 
-            {contentType === "file" && (
-              <div className="space-y-2 col-span-2">
-                <Label>Tipo de arquivo</Label>
-                <Select
-                  value={form.watch("file_type") ?? ""}
-                  onValueChange={(v) => form.setValue("file_type", v as "html" | "zip")}
+            {needsFile && (
+              <div className="col-span-2">
+                <Label className="mb-2 block">Arquivo</Label>
+                <div
+                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                    dragOver ? "border-primary bg-primary/5" : "hover:border-primary"
+                  } ${file ? "border-primary/50" : ""}`}
+                  onClick={() => document.getElementById("cf-file-input")?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleDrop}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o tipo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="html">HTML simples</SelectItem>
-                    <SelectItem value="zip">ZIP (aplicação estática)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Após criar, faça o upload do arquivo no menu de ações.
-                </p>
+                  <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
+                  {file ? (
+                    <div>
+                      <p className="text-sm font-medium">{file.name}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB · clique para trocar
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium">Clique ou arraste o arquivo</p>
+                      <p className="text-xs text-muted-foreground mt-1">HTML ou ZIP com index.html (máx. 50MB)</p>
+                    </>
+                  )}
+                </div>
+                <input
+                  id="cf-file-input"
+                  type="file"
+                  accept=".html,.htm,.zip"
+                  className="hidden"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
               </div>
             )}
           </div>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-            <Button type="submit" disabled={mutation.isPending}>
+            <Button type="button" variant="outline" onClick={handleClose}>Cancelar</Button>
+            <Button type="submit" disabled={mutation.isPending || (needsFile && !file)}>
               {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isEditing ? "Salvar" : "Criar"}
+              {submitLabel}
             </Button>
           </DialogFooter>
         </form>
@@ -447,7 +505,7 @@ export function ContentAdminPage() {
                         {content.type === "file" && (
                           <DropdownMenuItem onClick={() => setUploadContent(content as unknown as Content)}>
                             <Upload className="mr-2 h-4 w-4" />
-                            Upload de arquivo
+                            Substituir arquivo
                           </DropdownMenuItem>
                         )}
                         {content.type === "project" && !content.is_public && (
@@ -495,7 +553,7 @@ export function ContentAdminPage() {
         onClose={() => { setShowDialog(false); setEditContent(null); }}
         editContent={editContent}
       />
-      <UploadDialog content={uploadContent} onClose={() => setUploadContent(null)} />
+      <ReplaceFileDialog content={uploadContent} onClose={() => setUploadContent(null)} />
       <SnippetDialog content={snippetContent} onClose={() => setSnippetContent(null)} />
     </div>
   );

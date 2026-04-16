@@ -52,7 +52,17 @@ api.interceptors.response.use(
 
 export function getApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    return error.response?.data?.detail || error.message || "Erro desconhecido";
+    const detail = error.response?.data?.detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map((d: { msg?: string; loc?: string[] }) => {
+          const field = d.loc?.slice(1).join(".");
+          return field ? `${field}: ${d.msg}` : (d.msg ?? "Erro de validação");
+        })
+        .join("; ");
+    }
+    if (typeof detail === "string") return detail;
+    return error.message || "Erro desconhecido";
   }
   if (error instanceof Error) return error.message;
   return "Erro desconhecido";

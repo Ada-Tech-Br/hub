@@ -21,8 +21,6 @@ class ContentCreate(ContentBase):
     def validate_content(self) -> "ContentCreate":
         if self.type == ContentType.project and not self.external_url:
             raise ValueError("external_url is required for project type")
-        if self.type == ContentType.file and not self.file_type:
-            raise ValueError("file_type is required for file type")
         return self
 
 
