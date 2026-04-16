@@ -98,9 +98,9 @@ def upload_zip_content(content_id: uuid.UUID, zip_bytes: bytes, is_public: bool)
 
 def get_signed_url(s3_path: str, expiration: int = 3600) -> str:
     """Gera CloudFront Signed URL para conteúdo privado."""
-    cf_domain = settings.CLOUDFRONT_DOMAIN          # ex: d1234abcd.cloudfront.net
-    key_id     = settings.CLOUDFRONT_KEY_ID          # ex: K2JCJMDEHXQW5F
-    private_key_pem = settings.CLOUDFRONT_PRIVATE_KEY  # conteúdo do .pem (str)
+    cf_domain = settings.CLOUDFRONT_DOMAIN
+    key_id = settings.CLOUDFRONT_KEY_ID
+    private_key_pem = settings.CLOUDFRONT_PRIVATE_KEY
     url = f"https://{cf_domain}/{s3_path}"
     expire_time = int((datetime.datetime.utcnow() + datetime.timedelta(seconds=expiration)).timestamp())
     policy = json.dumps({
@@ -110,7 +110,7 @@ def get_signed_url(s3_path: str, expiration: int = 3600) -> str:
         }]
     }, separators=(",", ":"))
     private_key = serialization.load_pem_private_key(
-        private_key_pem.encode(), password=None
+        private_key_pem.replace("\\n", "\n").encode(), password=None
     )
     signature = private_key.sign(policy.encode(), padding.PKCS1v15(), hashes.SHA1())
     def _cf_b64(data: bytes) -> str:
