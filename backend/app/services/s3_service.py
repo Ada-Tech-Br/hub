@@ -10,7 +10,7 @@ import boto3
 from app.core.config import settings
 from app.core.exceptions import ValidationError
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 def _normalize_zip_entry(name: str) -> str:
@@ -122,6 +122,8 @@ def get_signed_url(s3_path: str, expiration: int = 3600) -> str:
     private_key = serialization.load_pem_private_key(
         private_key_pem.replace("\\n", "\n").encode(), password=None
     )
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise ValidationError("CloudFront signing key must be an RSA PEM private key")
     signature = private_key.sign(policy.encode(), padding.PKCS1v15(), hashes.SHA1())
 
     def _cf_b64(data: bytes) -> str:
