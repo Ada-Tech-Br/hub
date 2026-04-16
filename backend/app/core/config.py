@@ -26,7 +26,10 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "ada-platform-files"
-    S3_PUBLIC_URL: str = ""
+
+    CLOUDFRONT_DOMAIN: str = ""
+    CLOUDFRONT_KEY_ID: str = ""
+    CLOUDFRONT_PRIVATE_KEY: str = ""
 
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = "noreply@ada.com.br"

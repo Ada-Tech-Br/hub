@@ -3,6 +3,7 @@ import os
 import uuid
 import zipfile
 import tempfile
+import datetime
 from pathlib import Path
 
 import boto3
@@ -11,6 +12,9 @@ from botocore.exceptions import ClientError
 from app.core.config import settings
 from app.core.exceptions import BadRequestError, ValidationError
 
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+import base64, json
 
 def _normalize_zip_entry(name: str) -> str:
     return name.replace("\\", "/").strip("/")
@@ -41,10 +45,15 @@ def _get_s3_client():
     )
 
 
-def upload_html_file(content_id: uuid.UUID, file_content: bytes, filename: str) -> str:
-    """Upload a single HTML file to S3 and return its path."""
+def _content_prefix(content_id: uuid.UUID, is_public: bool) -> str:
+    tier = "public" if is_public else "private"
+    return f"{tier}/content/{content_id}"
+
+
+def upload_html_file(content_id: uuid.UUID, file_content: bytes, filename: str, is_public: bool) -> str:
+    """Upload a single HTML file to S3 and return its key."""
     s3 = _get_s3_client()
-    s3_key = f"content/{content_id}/{filename}"
+    s3_key = f"{_content_prefix(content_id, is_public)}/{filename}"
 
     s3.put_object(
         Bucket=settings.S3_BUCKET_NAME,
@@ -55,18 +64,18 @@ def upload_html_file(content_id: uuid.UUID, file_content: bytes, filename: str) 
     return s3_key
 
 
-def upload_zip_content(content_id: uuid.UUID, zip_bytes: bytes) -> tuple[str, str]:
+def upload_zip_content(content_id: uuid.UUID, zip_bytes: bytes, is_public: bool) -> tuple[str, str]:
     """
     Validates ZIP contains index.html, extracts and uploads all files to S3.
-    Returns (base_prefix, index_object_key). index_object_key matches where index.html
-    was stored inside the ZIP (e.g. content/{id}/app/index.html).
+    Returns (base_prefix, index_object_key).
+    Files land under public/content/{id}/... or private/content/{id}/...
     """
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
         index_entry = _find_index_zip_entry(names)
 
         s3 = _get_s3_client()
-        base_path = f"content/{content_id}"
+        base_path = _content_prefix(content_id, is_public)
 
         for name in names:
             if name.endswith("/"):
@@ -87,25 +96,35 @@ def upload_zip_content(content_id: uuid.UUID, zip_bytes: bytes) -> tuple[str, st
     return base_path, index_s3_key
 
 
-def get_presigned_url(s3_path: str, expiration: int = 3600) -> str:
-    """Generate a presigned URL for private S3 object."""
-    s3 = _get_s3_client()
-    try:
-        url = s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": settings.S3_BUCKET_NAME, "Key": s3_path},
-            ExpiresIn=expiration,
-        )
-        return url
-    except ClientError as e:
-        raise BadRequestError(f"Failed to generate access URL: {str(e)}")
-
+def get_signed_url(s3_path: str, expiration: int = 3600) -> str:
+    """Gera CloudFront Signed URL para conteúdo privado."""
+    cf_domain = settings.CLOUDFRONT_DOMAIN          # ex: d1234abcd.cloudfront.net
+    key_id     = settings.CLOUDFRONT_KEY_ID          # ex: K2JCJMDEHXQW5F
+    private_key_pem = settings.CLOUDFRONT_PRIVATE_KEY  # conteúdo do .pem (str)
+    url = f"https://{cf_domain}/{s3_path}"
+    expire_time = int((datetime.datetime.utcnow() + datetime.timedelta(seconds=expiration)).timestamp())
+    policy = json.dumps({
+        "Statement": [{
+            "Resource": url,
+            "Condition": {"DateLessThan": {"AWS:EpochTime": expire_time}}
+        }]
+    }, separators=(",", ":"))
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode(), password=None
+    )
+    signature = private_key.sign(policy.encode(), padding.PKCS1v15(), hashes.SHA1())
+    def _cf_b64(data: bytes) -> str:
+        return base64.b64encode(data).decode().replace("+", "-").replace("=", "_").replace("/", "~")
+    return (
+        f"{url}"
+        f"?Policy={_cf_b64(policy.encode())}"
+        f"&Signature={_cf_b64(signature)}"
+        f"&Key-Pair-Id={key_id}"
+    )
 
 def get_public_url(s3_path: str) -> str:
-    """Return the public URL for an S3 object."""
-    base = settings.S3_PUBLIC_URL or f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com"
-    return f"{base}/{s3_path}"
-
+    """Return the permanent CloudFront URL for a public object."""
+    return f"https://{settings.CLOUDFRONT_DOMAIN}/{s3_path}"
 
 def _guess_content_type(filename: str) -> str:
     ext = Path(filename).suffix.lower()

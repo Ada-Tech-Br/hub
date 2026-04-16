@@ -111,7 +111,7 @@ def handle_html_upload(
     if content.type != ContentType.file:
         raise ValidationError("Content must be of type 'file'")
 
-    s3_key = s3_service.upload_html_file(content_id, file_bytes, filename)
+    s3_key = s3_service.upload_html_file(content_id, file_bytes, filename, is_public=content.is_public)
     content.s3_path = s3_key
     content.file_type = FileType.html
     content.uploaded_file_path = filename
@@ -132,7 +132,7 @@ def handle_zip_upload(
     if content.type != ContentType.file:
         raise ValidationError("Content must be of type 'file'")
 
-    base_path, index_s3_key = s3_service.upload_zip_content(content_id, zip_bytes)
+    base_path, index_s3_key = s3_service.upload_zip_content(content_id, zip_bytes, is_public=content.is_public)
     content.s3_path = index_s3_key
     content.file_type = FileType.zip
     content.uploaded_file_path = base_path
@@ -158,7 +158,7 @@ def get_content_access(db: Session, content_id: uuid.UUID) -> ContentAccessRespo
     if content.is_public:
         access_url = s3_service.get_public_url(content.s3_path)
     else:
-        access_url = s3_service.get_presigned_url(content.s3_path)
+        access_url = s3_service.get_signed_url(content.s3_path)
 
     return ContentAccessResponse(
         access_url=access_url,
