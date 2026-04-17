@@ -109,9 +109,22 @@ def verify_otp(db: Session, data: OTPVerify) -> TokenResponse:
     return _build_token_response(user)
 
 
+def _ensure_google_email_domain_allowed(user_info: dict) -> None:
+    allowed = settings.google_allowed_email_domains
+    if not allowed:
+        return
+    email = user_info.get("email")
+    if not isinstance(email, str) or "@" not in email:
+        raise UnauthorizedError("Google account email is missing or invalid")
+    host = email.rsplit("@", 1)[-1].lower()
+    if host not in allowed:
+        raise UnauthorizedError("Sign-in is restricted to organization accounts")
+
+
 def handle_google_callback(db: Session, code: str) -> TokenResponse:
     token_data = _exchange_google_code(code)
     user_info = _get_google_user_info(token_data["access_token"])
+    _ensure_google_email_domain_allowed(user_info)
 
     email = user_info["email"]
     google_id = user_info["sub"]

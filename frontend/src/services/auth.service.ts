@@ -42,6 +42,14 @@ export const authService = {
       prompt: "select_account",
     });
 
+    const allowedDomains = (import.meta.env.VITE_GOOGLE_ALLOWED_EMAIL_DOMAINS ?? "")
+      .split(",")
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean);
+    if (allowedDomains.length === 1) {
+      params.set("hd", allowedDomains[0]);
+    }
+
     return `${GOOGLE_OAUTH_URL}?${params.toString()}`;
   },
 };

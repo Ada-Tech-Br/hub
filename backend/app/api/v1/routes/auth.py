@@ -15,16 +15,18 @@ def google_login():
     """Redirect to Google OAuth consent screen (fallback — prefer frontend-initiated flow)."""
     from urllib.parse import urlencode
 
-    params = urlencode(
-        {
-            "client_id": settings.GOOGLE_CLIENT_ID,
-            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
-            "response_type": "code",
-            "scope": "openid email profile",
-            "access_type": "offline",
-            "prompt": "select_account",
-        }
-    )
+    query: dict[str, str] = {
+        "client_id": settings.GOOGLE_CLIENT_ID,
+        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account",
+    }
+    allowed = settings.google_allowed_email_domains
+    if len(allowed) == 1:
+        query["hd"] = next(iter(allowed))
+    params = urlencode(query)
     return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 

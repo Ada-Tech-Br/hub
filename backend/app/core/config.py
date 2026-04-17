@@ -19,12 +19,24 @@ class Settings(BaseSettings):
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
+    # Comma-separated hostnames (e.g. ada.tech,corp.com). If set, only those
+    # Google accounts may sign in. Empty = no restriction (dev / open).
+    GOOGLE_ALLOWED_EMAIL_DOMAINS: str = ""
     # Path relativo ao FRONTEND_URL, ex: /auth/google/callback
     GOOGLE_REDIRECT_PATH: str = "/auth/google/callback"
 
     @property
     def GOOGLE_REDIRECT_URI(self) -> str:
         return f"{self.FRONTEND_URL}{self.GOOGLE_REDIRECT_PATH}"
+
+    @property
+    def google_allowed_email_domains(self) -> frozenset[str]:
+        raw = self.GOOGLE_ALLOWED_EMAIL_DOMAINS.strip()
+        if not raw:
+            return frozenset()
+        return frozenset(
+            part.strip().lower() for part in raw.split(",") if part.strip()
+        )
 
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
