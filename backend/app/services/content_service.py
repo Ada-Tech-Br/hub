@@ -132,6 +132,7 @@ def handle_html_upload(
     content.uploaded_file_path = filename
     content.updated_by = updated_by
     content.updated_at = datetime.now(timezone.utc)
+    _ensure_private_upload_access_grant(db, content, updated_by)
     db.commit()
     db.refresh(content)
     return content
@@ -155,6 +156,7 @@ def handle_zip_upload(
     content.uploaded_file_path = base_path
     content.updated_by = updated_by
     content.updated_at = datetime.now(timezone.utc)
+    _ensure_private_upload_access_grant(db, content, updated_by)
     db.commit()
     db.refresh(content)
     return content
@@ -162,6 +164,8 @@ def handle_zip_upload(
 
 def _check_user_access(db: Session, content: Content, user_id: uuid.UUID) -> bool:
     """Returns True if the user is allowed to access private content."""
+    if content.created_by is not None and content.created_by == user_id:
+        return True
     if content.access_mode == AccessMode.all_users:
         return True
     grant = db.scalar(
@@ -171,6 +175,31 @@ def _check_user_access(db: Session, content: Content, user_id: uuid.UUID) -> boo
         )
     )
     return grant is not None
+
+
+def _ensure_private_upload_access_grant(
+    db: Session, content: Content, user_id: uuid.UUID | None
+) -> None:
+    """Private files: grant the uploader explicit access when mode is specific_users."""
+    if user_id is None or content.is_public:
+        return
+    if content.access_mode != AccessMode.specific_users:
+        return
+    exists = db.scalar(
+        select(ContentAccess).where(
+            ContentAccess.content_id == content.id,
+            ContentAccess.user_id == user_id,
+        )
+    )
+    if exists is not None:
+        return
+    db.add(
+        ContentAccess(
+            content_id=content.id,
+            user_id=user_id,
+            granted_by=user_id,
+        )
+    )
 
 
 def get_content_access(
