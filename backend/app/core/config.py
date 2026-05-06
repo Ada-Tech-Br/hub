@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     CLOUDFRONT_DOMAIN: str = ""
     CLOUDFRONT_KEY_ID: str = ""
     CLOUDFRONT_PRIVATE_KEY: str = ""
+    # Parent domain for Set-Cookie on /content/.../access (e.g. .stg.ada.tech).
+    # Must be set when private files use CloudFront signed cookies (subdomain of CDN).
+    CLOUDFRONT_COOKIE_DOMAIN: str = ""
+    CLOUDFRONT_COOKIE_MAX_AGE: int = 3600
 
     EMAIL_FROM: str = "noreply@ada.tech"
 

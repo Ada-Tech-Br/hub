@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.exceptions import ValidationError
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from starlette.responses import Response
 
 
 def _normalize_zip_entry(name: str) -> str:
@@ -97,50 +98,106 @@ def upload_zip_content(
     return base_path, index_s3_key
 
 
-def get_signed_url(s3_path: str, expiration: int = 3600) -> str:
-    """Gera CloudFront Signed URL para conteúdo privado."""
-    cf_domain = settings.CLOUDFRONT_DOMAIN
-    key_id = settings.CLOUDFRONT_KEY_ID
-    private_key_pem = settings.CLOUDFRONT_PRIVATE_KEY
-    url = f"https://{cf_domain}/{s3_path}"
-    expire_time = int(
-        (
-            datetime.datetime.utcnow() + datetime.timedelta(seconds=expiration)
-        ).timestamp()
+def _cf_url_safe_b64(data: bytes) -> str:
+    return (
+        base64.b64encode(data).decode().replace("+", "-").replace("=", "_").replace("/", "~")
     )
-    policy = json.dumps(
+
+
+def _load_cloudfront_private_key() -> rsa.RSAPrivateKey:
+    pem = settings.CLOUDFRONT_PRIVATE_KEY.replace("\\n", "\n").encode()
+    key = serialization.load_pem_private_key(pem, password=None)
+    if not isinstance(key, rsa.RSAPrivateKey):
+        raise ValidationError("CloudFront signing key must be an RSA PEM private key")
+    return key
+
+
+def _resolve_cloudfront_cookie_domain() -> str:
+    explicit = (settings.CLOUDFRONT_COOKIE_DOMAIN or "").strip()
+    if explicit:
+        return explicit if explicit.startswith(".") else f".{explicit}"
+    host = settings.CLOUDFRONT_DOMAIN.strip().lower().split("/")[0].split(":")[0]
+    if not host or host.endswith(".cloudfront.net"):
+        return ""
+    parts = host.split(".")
+    if len(parts) < 3:
+        return ""
+    return "." + ".".join(parts[1:])
+
+
+def _cloudfront_cookie_path(s3_path: str) -> str:
+    parts = s3_path.split("/")
+    if len(parts) >= 3 and parts[0] == "private" and parts[1] == "content":
+        return "/" + "/".join(parts[:3]) + "/"
+    return "/"
+
+
+def _cloudfront_wildcard_resource_url(s3_path: str) -> str:
+    cf_domain = settings.CLOUDFRONT_DOMAIN.strip().lower().split("/")[0].split(":")[0]
+    parts = s3_path.split("/")
+    if len(parts) >= 3 and parts[0] == "private" and parts[1] == "content":
+        prefix = "/".join(parts[:3])
+        return f"https://{cf_domain}/{prefix}/*"
+    return f"https://{cf_domain}/{s3_path}"
+
+
+def _cloudfront_sign_policy_for_resource(resource: str, max_age: int) -> tuple[str, str, str]:
+    expire_time = int(
+        (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=max_age)).timestamp()
+    )
+    policy_bytes = json.dumps(
         {
             "Statement": [
                 {
-                    "Resource": url,
+                    "Resource": resource,
                     "Condition": {"DateLessThan": {"AWS:EpochTime": expire_time}},
                 }
             ]
         },
         separators=(",", ":"),
+    ).encode()
+    private_key = _load_cloudfront_private_key()
+    signature = private_key.sign(policy_bytes, padding.PKCS1v15(), hashes.SHA1())
+    return (
+        _cf_url_safe_b64(policy_bytes),
+        _cf_url_safe_b64(signature),
+        settings.CLOUDFRONT_KEY_ID,
     )
-    private_key = serialization.load_pem_private_key(
-        private_key_pem.replace("\\n", "\n").encode(), password=None
-    )
-    if not isinstance(private_key, rsa.RSAPrivateKey):
-        raise ValidationError("CloudFront signing key must be an RSA PEM private key")
-    signature = private_key.sign(policy.encode(), padding.PKCS1v15(), hashes.SHA1())
 
-    def _cf_b64(data: bytes) -> str:
-        return (
-            base64.b64encode(data)
-            .decode()
-            .replace("+", "-")
-            .replace("=", "_")
-            .replace("/", "~")
+
+def attach_cloudfront_signed_cookies(
+    response: Response,
+    s3_path: str,
+    expiration: int | None = None,
+) -> None:
+    """
+    Set CloudFront signed cookies so the browser can load all objects under the
+    private content prefix (HTML, CSS, JS) without a signed query string on each URL.
+    """
+    max_age = expiration if expiration is not None else settings.CLOUDFRONT_COOKIE_MAX_AGE
+    domain = _resolve_cloudfront_cookie_domain()
+    if not domain:
+        raise ValidationError(
+            "Configure CLOUDFRONT_COOKIE_DOMAIN (e.g. .stg.ada.tech) so signed cookies "
+            "apply to your CDN hostname. Cannot infer a safe parent domain for "
+            "*.cloudfront.net."
         )
 
-    return (
-        f"{url}"
-        f"?Policy={_cf_b64(policy.encode())}"
-        f"&Signature={_cf_b64(signature)}"
-        f"&Key-Pair-Id={key_id}"
-    )
+    resource = _cloudfront_wildcard_resource_url(s3_path)
+    policy_b64, signature_b64, key_id = _cloudfront_sign_policy_for_resource(resource, max_age)
+    path = _cloudfront_cookie_path(s3_path)
+
+    cookie_kwargs = {
+        "domain": domain,
+        "path": path,
+        "max_age": max_age,
+        "secure": True,
+        "httponly": True,
+        "samesite": "none",
+    }
+    response.set_cookie("CloudFront-Policy", policy_b64, **cookie_kwargs)
+    response.set_cookie("CloudFront-Signature", signature_b64, **cookie_kwargs)
+    response.set_cookie("CloudFront-Key-Pair-Id", key_id, **cookie_kwargs)
 
 
 def get_public_url(s3_path: str) -> str:

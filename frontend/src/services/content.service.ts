@@ -69,7 +69,7 @@ export const contentService = {
   },
 
   async getAccess(id: string): Promise<ContentAccessResponse> {
-    const { data } = await api.get(`/content/${id}/access`);
+    const { data } = await api.get(`/content/${id}/access`, { withCredentials: true });
     return data;
   },
 

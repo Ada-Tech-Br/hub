@@ -15,8 +15,9 @@ from app.schemas.content import (
     SetAccessModeRequest,
     SnippetResponse,
 )
-from app.services import content_service
+from app.services import content_service, s3_service
 from fastapi import APIRouter, File, Query, UploadFile
+from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/content", tags=["content"])
 
@@ -100,9 +101,15 @@ async def upload_file(
 
 @router.get("/{content_id}/access", response_model=ContentAccessResponse)
 def get_content_access(content_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
-    return content_service.get_content_access(
+    body, cookie_s3_path = content_service.get_content_access(
         db, content_id, current_user_id=current_user.id
     )
+    if not cookie_s3_path:
+        return body
+    payload = body.model_dump(mode="json")
+    resp = JSONResponse(content=payload)
+    s3_service.attach_cloudfront_signed_cookies(resp, cookie_s3_path)
+    return resp
 
 
 @router.get("/{content_id}/snippet", response_model=SnippetResponse)

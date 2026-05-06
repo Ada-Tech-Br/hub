@@ -204,13 +204,21 @@ def _ensure_private_upload_access_grant(
 
 def get_content_access(
     db: Session, content_id: uuid.UUID, current_user_id: uuid.UUID
-) -> ContentAccessResponse:
+) -> tuple[ContentAccessResponse, str | None]:
+    """
+    Returns (body, s3_path_for_cloudfront_cookies).
+    For private files, the second value is the object key used to scope signed cookies;
+    the route attaches cookies and returns an unsigned CDN URL in ``access_url``.
+    """
     content = get_content_by_id(db, content_id)
 
     if content.type == ContentType.project:
-        return ContentAccessResponse(
-            access_url=content.external_url or "",
-            type=content.type,
+        return (
+            ContentAccessResponse(
+                access_url=content.external_url or "",
+                type=content.type,
+            ),
+            None,
         )
 
     if not content.s3_path:
@@ -225,15 +233,16 @@ def get_content_access(
         )
         raise ForbiddenError("You do not have access to this content")
 
-    if content.is_public:
-        access_url = s3_service.get_public_url(content.s3_path)
-    else:
-        access_url = s3_service.get_signed_url(content.s3_path)
+    access_url = s3_service.get_public_url(content.s3_path)
+    cookie_scope: str | None = None if content.is_public else content.s3_path
 
-    return ContentAccessResponse(
-        access_url=access_url,
-        type=content.type,
-        file_type=content.file_type,
+    return (
+        ContentAccessResponse(
+            access_url=access_url,
+            type=content.type,
+            file_type=content.file_type,
+        ),
+        cookie_scope,
     )
 
 
@@ -337,6 +346,7 @@ def generate_snippet(db: Session, content_id: uuid.UUID) -> SnippetResponse:
     try {{
       var response = await fetch(ADA_API.replace(':5173', ':8000') + '/content/{content_id}/access', {{
         method: 'GET',
+        credentials: 'include',
         headers: {{
           'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
