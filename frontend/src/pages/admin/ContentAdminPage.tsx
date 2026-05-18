@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -357,17 +357,26 @@ function ContentFormDialog({
 
   const form = useForm<ContentForm>({
     resolver: zodResolver(contentSchema),
-    defaultValues: editContent
-      ? {
-          title: editContent.title,
-          description: editContent.description ?? "",
-          type: editContent.type,
-          icon: editContent.icon ?? "",
-          is_public: editContent.is_public,
-          external_url: editContent.external_url ?? "",
-        }
-      : { type: "project", is_public: true },
+    defaultValues: { type: "project", is_public: true },
   });
+
+  useEffect(() => {
+    if (open) {
+      form.reset(
+        editContent
+          ? {
+              title: editContent.title,
+              description: editContent.description ?? "",
+              type: editContent.type,
+              icon: editContent.icon ?? "",
+              is_public: editContent.is_public,
+              external_url: editContent.external_url ?? "",
+            }
+          : { type: "project", is_public: true }
+      );
+      setFile(null);
+    }
+  }, [open, editContent]);
 
   const contentType = form.watch("type");
   const needsFile = !isEditing && contentType === "file";

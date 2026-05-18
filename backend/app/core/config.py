@@ -56,8 +56,27 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "noreply@ada.tech"
 
     FRONTEND_URL: str = "http://localhost:5173"
+    # Comma-separated extra CORS origins (e.g. preview URL). Required for
+    # Set-Cookie on /content/.../access when the SPA origin differs from FRONTEND_URL.
+    CORS_ORIGINS: str = ""
 
     OTP_EXPIRE_MINUTES: int = 10
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        origins = [
+            self.FRONTEND_URL.rstrip("/"),
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+        if self.CORS_ORIGINS.strip():
+            for part in self.CORS_ORIGINS.split(","):
+                o = part.strip().rstrip("/")
+                if o and o not in origins:
+                    origins.append(o)
+        return origins
 
     @property
     def ses_region(self) -> str:

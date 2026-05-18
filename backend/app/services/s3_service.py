@@ -2,16 +2,21 @@ import base64
 import datetime
 import io
 import json
+import logging
 import uuid
 import zipfile
 from pathlib import Path
+from typing import Generator
 
 import boto3
 from app.core.config import settings
-from app.core.exceptions import ValidationError
+from app.core.exceptions import NotFoundError, ValidationError
+from botocore.exceptions import ClientError
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from starlette.responses import Response
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_zip_entry(name: str) -> str:
@@ -114,12 +119,16 @@ def _load_cloudfront_private_key() -> rsa.RSAPrivateKey:
 
 def _resolve_cloudfront_cookie_domain() -> str:
     explicit = (settings.CLOUDFRONT_COOKIE_DOMAIN or "").strip()
+    cf_host = settings.CLOUDFRONT_DOMAIN.strip().lower().split("/")[0].split(":")[0]
     if explicit:
+        norm = explicit[1:].lower() if explicit.startswith(".") else explicit.lower()
+        # If user pasted the CDN hostname, use parent domain so cookies apply to API + CDN.
+        if norm == cf_host and len(cf_host.split(".")) >= 3:
+            return "." + ".".join(cf_host.split(".")[1:])
         return explicit if explicit.startswith(".") else f".{explicit}"
-    host = settings.CLOUDFRONT_DOMAIN.strip().lower().split("/")[0].split(":")[0]
-    if not host or host.endswith(".cloudfront.net"):
+    if not cf_host or cf_host.endswith(".cloudfront.net"):
         return ""
-    parts = host.split(".")
+    parts = cf_host.split(".")
     if len(parts) < 3:
         return ""
     return "." + ".".join(parts[1:])
@@ -198,6 +207,13 @@ def attach_cloudfront_signed_cookies(
     response.set_cookie("CloudFront-Policy", policy_b64, **cookie_kwargs)
     response.set_cookie("CloudFront-Signature", signature_b64, **cookie_kwargs)
     response.set_cookie("CloudFront-Key-Pair-Id", key_id, **cookie_kwargs)
+    logger.info(
+        "cloudfront_signed_cookies domain=%s path=%s resource=%s max_age=%s",
+        domain,
+        path,
+        resource,
+        max_age,
+    )
 
 
 def get_public_url(s3_path: str) -> str:
@@ -226,3 +242,39 @@ def _guess_content_type(filename: str) -> str:
         ".webp": "image/webp",
     }
     return mapping.get(ext, "application/octet-stream")
+
+
+def stream_s3_object(
+    s3_key: str,
+    chunk_size: int = 65536,
+) -> tuple[Generator[bytes, None, None], str, int | None]:
+    """
+    Fetch an S3 object and return (body_generator, content_type, content_length).
+    The generator streams the file in chunks without loading it fully into memory.
+    Raises NotFoundError if the key does not exist in the bucket.
+    """
+    s3 = _get_s3_client()
+    try:
+        obj = s3.get_object(Bucket=settings.S3_BUCKET_NAME, Key=s3_key)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in ("NoSuchKey", "404", "AccessDenied"):
+            raise NotFoundError("File not found")
+        raise
+
+    content_type: str = obj.get("ContentType", "application/octet-stream")
+    content_length: int | None = obj.get("ContentLength")
+    body = obj["Body"]
+
+    def _iter() -> Generator[bytes, None, None]:
+        try:
+            while True:
+                chunk = body.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            body.close()
+
+    logger.info("s3_stream key=%s content_type=%s", s3_key, content_type)
+    return _iter(), content_type, content_length

@@ -204,21 +204,17 @@ def _ensure_private_upload_access_grant(
 
 def get_content_access(
     db: Session, content_id: uuid.UUID, current_user_id: uuid.UUID
-) -> tuple[ContentAccessResponse, str | None]:
+) -> ContentAccessResponse:
     """
-    Returns (body, s3_path_for_cloudfront_cookies).
-    For private files, the second value is the object key used to scope signed cookies;
-    the route attaches cookies and returns an unsigned CDN URL in ``access_url``.
+    Verifies user access and returns an access response with a backend proxy URL.
+    All file content is served through the /serve endpoint — never directly from S3/CloudFront.
     """
     content = get_content_by_id(db, content_id)
 
     if content.type == ContentType.project:
-        return (
-            ContentAccessResponse(
-                access_url=content.external_url or "",
-                type=content.type,
-            ),
-            None,
+        return ContentAccessResponse(
+            access_url=content.external_url or "",
+            type=content.type,
         )
 
     if not content.s3_path:
@@ -233,17 +229,58 @@ def get_content_access(
         )
         raise ForbiddenError("You do not have access to this content")
 
-    access_url = s3_service.get_public_url(content.s3_path)
-    cookie_scope: str | None = None if content.is_public else content.s3_path
-
-    return (
-        ContentAccessResponse(
-            access_url=access_url,
-            type=content.type,
-            file_type=content.file_type,
-        ),
-        cookie_scope,
+    serve_url = f"/api/v1/content/{content_id}/serve"
+    return ContentAccessResponse(
+        access_url=serve_url,
+        type=content.type,
+        file_type=content.file_type,
     )
+
+
+def resolve_serve_s3_key(
+    db: Session, content_id: uuid.UUID, file_path: str
+) -> str:
+    """
+    Resolve a relative file_path to the concrete S3 key for the content.
+
+    - file_path="" → returns the index key stored in content.s3_path
+    - file_path="app.js" → returns {base_prefix}/app.js
+
+    Path traversal is prevented: any segment equal to ".." is stripped, and the
+    final key must still contain content/{content_id} as a sub-path.
+    """
+    content = get_content_by_id(db, content_id)
+
+    if content.type != ContentType.file:
+        raise NotFoundError("Content is not a file")
+    if not content.s3_path:
+        raise NotFoundError("Content has no associated file")
+
+    if not file_path:
+        return content.s3_path
+
+    safe_segments = [
+        seg
+        for seg in file_path.replace("\\", "/").split("/")
+        if seg and seg != ".." and seg != "."
+    ]
+    if not safe_segments:
+        return content.s3_path
+
+    normalized = "/".join(safe_segments)
+
+    if content.file_type == FileType.zip and content.uploaded_file_path:
+        base = content.uploaded_file_path.rstrip("/")
+    else:
+        base = "/".join(content.s3_path.split("/")[:-1])
+
+    s3_key = f"{base}/{normalized}"
+
+    expected_infix = f"content/{content_id}"
+    if expected_infix not in s3_key:
+        raise NotFoundError("File not found")
+
+    return s3_key
 
 
 def get_access_control(db: Session, content_id: uuid.UUID) -> AccessControlResponse:

@@ -1,10 +1,10 @@
-import { useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Loader2, ArrowLeft, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { contentService } from "@/services/content.service";
 import { getApiErrorMessage } from "@/lib/api";
+import { contentService } from "@/services/content.service";
+import { useQuery } from "@tanstack/react-query";
+import { AlertCircle, ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 export function ContentViewerPage() {
   const { id } = useParams<{ id: string }>();

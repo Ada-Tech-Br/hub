@@ -26,6 +26,31 @@ def create_refresh_token(subject: str | Any) -> str:
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
+def create_content_access_token(
+    user_id: str | Any,
+    content_id: str | Any,
+    expires_delta: timedelta | None = None,
+) -> str:
+    """Short-lived token used to authorize sub-resource requests to /content/{id}/serve."""
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(seconds=settings.CLOUDFRONT_COOKIE_MAX_AGE)
+    )
+    to_encode = {
+        "exp": expire,
+        "sub": str(user_id),
+        "cid": str(content_id),
+        "type": "content_access",
+    }
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_content_access_token(token: str) -> dict[str, Any] | None:
+    payload = verify_token(token)
+    if payload and payload.get("type") == "content_access":
+        return payload
+    return None
+
+
 def verify_token(token: str) -> dict[str, Any] | None:
     try:
         payload = jwt.decode(

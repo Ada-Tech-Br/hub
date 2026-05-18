@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -49,16 +49,24 @@ function UserFormDialog({
 
   const form = useForm<UserForm>({
     resolver: zodResolver(userFormSchema),
-    defaultValues: editUser
-      ? {
-          name: editUser.name,
-          email: editUser.email,
-          type: editUser.type,
-          role: editUser.role,
-          auth_provider: editUser.auth_provider,
-        }
-      : { type: "external", role: "user", auth_provider: "otp" },
+    defaultValues: { type: "external", role: "user", auth_provider: "otp" },
   });
+
+  useEffect(() => {
+    if (open) {
+      form.reset(
+        editUser
+          ? {
+              name: editUser.name,
+              email: editUser.email,
+              type: editUser.type,
+              role: editUser.role,
+              auth_provider: editUser.auth_provider,
+            }
+          : { type: "external", role: "user", auth_provider: "otp" }
+      );
+    }
+  }, [open, editUser]);
 
   const mutation = useMutation({
     mutationFn: (data: UserForm) => {

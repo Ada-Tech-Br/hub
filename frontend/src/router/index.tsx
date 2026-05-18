@@ -8,16 +8,19 @@ import { UsersPage } from "@/pages/admin/UsersPage";
 import { ContentAdminPage } from "@/pages/admin/ContentAdminPage";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { ErrorPage } from "@/pages/ErrorPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 
 export const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginPage />,
+    errorElement: <ErrorPage />,
   },
   {
     path: "/oauth/callback",
     element: <GoogleCallbackPage />,
+    errorElement: <ErrorPage />,
   },
   {
     path: "/",
@@ -26,6 +29,7 @@ export const router = createBrowserRouter([
         <AppLayout />
       </ProtectedRoute>
     ),
+    errorElement: <ErrorPage />,
     children: [
       {
         index: true,
@@ -48,6 +52,7 @@ export const router = createBrowserRouter([
         <AdminLayout />
       </ProtectedRoute>
     ),
+    errorElement: <ErrorPage />,
     children: [
       {
         index: true,
@@ -65,6 +70,6 @@ export const router = createBrowserRouter([
   },
   {
     path: "*",
-    element: <Navigate to="/dashboard" replace />,
+    element: <ErrorPage />,
   },
 ]);
