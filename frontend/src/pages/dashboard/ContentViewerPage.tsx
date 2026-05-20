@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { getApiErrorMessage } from "@/lib/api";
+import { getApiErrorMessage, resolveApiUrl } from "@/lib/api";
 import { contentService } from "@/services/content.service";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
@@ -23,7 +23,7 @@ export function ContentViewerPage() {
     openedRef.current = true;
 
     // Abre o projeto em nova aba para não abandonar a SPA
-    window.open(access.access_url, "_blank", "noopener,noreferrer");
+    window.open(resolveApiUrl(access.access_url), "_blank", "noopener,noreferrer");
 
     // Volta para o dashboard — o usuário nunca "sai" da plataforma
     navigate("/dashboard", { replace: true });
@@ -60,6 +60,8 @@ export function ContentViewerPage() {
 
   if (!access || access.type === "project") return null;
 
+  const contentUrl = resolveApiUrl(access.access_url);
+
   return (
     <div className="space-y-4 -mx-4 -my-8 sm:-mx-8">
       <div className="flex items-center gap-2 px-4 py-2 border-b bg-background sticky top-16 z-10">
@@ -73,7 +75,7 @@ export function ContentViewerPage() {
         </Button>
         <div className="flex-1" />
         <Button variant="outline" size="sm" asChild>
-          <a href={access.access_url} target="_blank" rel="noopener noreferrer">
+          <a href={contentUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink className="mr-2 h-4 w-4" />
             Abrir em nova aba
           </a>
@@ -81,7 +83,7 @@ export function ContentViewerPage() {
       </div>
 
       <iframe
-        src={access.access_url}
+        src={contentUrl}
         className="w-full border-0"
         style={{ height: "calc(100vh - 8rem)" }}
         title="Conteúdo"

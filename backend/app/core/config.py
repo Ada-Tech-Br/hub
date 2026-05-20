@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "noreply@ada.tech"
 
     FRONTEND_URL: str = "http://localhost:5173"
+    # URL pública do backend (ex.: https://api.seudominio.com). Usada em access_url
+    # para /content/.../serve — o browser deve carregar o iframe neste host, não no SPA.
+    API_PUBLIC_URL: str = ""
     # Comma-separated extra CORS origins (e.g. preview URL). Required for
     # Set-Cookie on /content/.../access when the SPA origin differs from FRONTEND_URL.
     CORS_ORIGINS: str = ""

@@ -2,6 +2,36 @@ import axios, { type AxiosError } from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+/** URLs absolutas para o host da API (necessário em produção quando o SPA não faz proxy de /api). */
+export function resolveApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+
+  const base = API_URL.replace(/\/$/, "");
+  let normalized = path.startsWith("/") ? path : `/${path}`;
+
+  // Evita /api/v1/api/v1/... quando VITE_API_URL já termina em /api/v1
+  if (base.endsWith("/api/v1") && normalized.startsWith("/api/v1/")) {
+    normalized = normalized.slice("/api/v1".length);
+  }
+
+  const resolved = `${base}${normalized}`;
+
+  if (import.meta.env.PROD && typeof window !== "undefined" && normalized.includes("/serve")) {
+    try {
+      if (new URL(resolved).origin === window.location.origin) {
+        console.error(
+          "[hub] URL de conteúdo resolve para o mesmo host do SPA. " +
+            "Defina VITE_API_URL (e API_PUBLIC_URL no backend) com a URL pública do FastAPI."
+        );
+      }
+    } catch {
+      /* ignore invalid URL during dev */
+    }
+  }
+
+  return resolved;
+}
+
 export const api = axios.create({
   baseURL: API_URL,
   headers: { "Content-Type": "application/json" },

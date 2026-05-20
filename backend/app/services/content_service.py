@@ -229,7 +229,9 @@ def get_content_access(
         )
         raise ForbiddenError("You do not have access to this content")
 
-    serve_url = f"/api/v1/content/{content_id}/serve"
+    serve_path = f"/content/{content_id}/serve"
+    api_base = settings.API_PUBLIC_URL.rstrip("/")
+    serve_url = f"{api_base}{serve_path}" if api_base else serve_path
     return ContentAccessResponse(
         access_url=serve_url,
         type=content.type,

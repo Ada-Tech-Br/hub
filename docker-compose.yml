@@ -24,7 +24,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://ada:ada@postgres:5432/ada_platform
+      # DATABASE_URL: postgresql://ada:ada@postgres:5432/ada_platform
       # Ficheiros em volumes montados nem sempre disparam inotify; o polling garante --reload no Docker Desktop/WSL.
       WATCHFILES_FORCE_POLLING: "true"
     ports:
