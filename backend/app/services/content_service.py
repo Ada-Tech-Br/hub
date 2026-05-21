@@ -16,7 +16,7 @@ from app.schemas.content import (
     SnippetResponse,
 )
 from app.services import s3_service
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("app.services.content_service")
@@ -38,6 +38,8 @@ def list_contents(
     search: str | None = None,
     type: ContentType | None = None,
     is_public: bool | None = None,
+    current_user_id: uuid.UUID | None = None,
+    is_admin: bool = False,
 ) -> PaginatedResponse:
     query = select(Content).where(Content.is_deleted == False)
 
@@ -47,6 +49,19 @@ def list_contents(
         query = query.where(Content.type == type)
     if is_public is not None:
         query = query.where(Content.is_public == is_public)
+
+    if not is_admin and current_user_id is not None:
+        accessible_private = select(ContentAccess.content_id).where(
+            ContentAccess.user_id == current_user_id
+        )
+        query = query.where(
+            or_(
+                Content.is_public == True,
+                Content.created_by == current_user_id,
+                Content.access_mode == AccessMode.all_users,
+                Content.id.in_(accessible_private),
+            )
+        )
 
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     items = db.scalars(

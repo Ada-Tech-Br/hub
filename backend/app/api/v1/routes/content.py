@@ -5,6 +5,7 @@ from app.core.deps import AdminUser, CurrentUser, DBSession
 from app.core.exceptions import ForbiddenError, ValidationError
 from app.core.security import create_content_access_token, decode_content_access_token
 from app.models.content import ContentType, FileType
+from app.models.user import UserRole
 from app.schemas.common import PaginatedResponse
 from app.schemas.content import (
     AccessControlResponse,
@@ -36,7 +37,13 @@ def list_contents(
     type: ContentType | None = Query(default=None),
 ):
     result = content_service.list_contents(
-        db, page=page, page_size=page_size, search=search, type=type
+        db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        type=type,
+        current_user_id=current_user.id,
+        is_admin=current_user.role == UserRole.admin,
     )
     return PaginatedResponse[ContentListResponse](
         items=[ContentListResponse.model_validate(c) for c in result.items],
