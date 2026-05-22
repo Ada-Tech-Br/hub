@@ -218,7 +218,10 @@ def _ensure_private_upload_access_grant(
 
 
 def get_content_access(
-    db: Session, content_id: uuid.UUID, current_user_id: uuid.UUID
+    db: Session,
+    content_id: uuid.UUID,
+    current_user_id: uuid.UUID,
+    is_admin: bool = False,
 ) -> ContentAccessResponse:
     """
     Verifies user access and returns an access response with a backend proxy URL.
@@ -235,7 +238,7 @@ def get_content_access(
     if not content.s3_path:
         raise ValidationError("Content has no associated file")
 
-    if not content.is_public and not _check_user_access(db, content, current_user_id):
+    if not content.is_public and not is_admin and not _check_user_access(db, content, current_user_id):
         logger.info(
             "content_access_denied content_id=%s user_id=%s access_mode=%s",
             content_id,

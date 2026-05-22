@@ -111,7 +111,10 @@ async def upload_file(
 @router.get("/{content_id}/access", response_model=ContentAccessResponse)
 def get_content_access(content_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
     body = content_service.get_content_access(
-        db, content_id, current_user_id=current_user.id
+        db,
+        content_id,
+        current_user_id=current_user.id,
+        is_admin=current_user.role == UserRole.admin,
     )
 
     # For file content served through the proxy, issue a short-lived content access
